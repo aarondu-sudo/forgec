@@ -7,9 +7,10 @@ package main
 import "C"
 
 import (
+	"unsafe"
+
 	p "example.com/myapi/internal"
 	"example.com/myapi/sentrywrap"
-	"unsafe"
 )
 
 //export capi_free
@@ -50,6 +51,20 @@ func PM_Minus(a C.int32_t, b C.int32_t, out *C.int32_t) C.int32_t {
 		}
 		if out != nil {
 			*out = C.int32_t(res)
+		}
+	})
+	return errno
+}
+
+//export PM_NewCloudSave
+func PM_NewCloudSave(appId C.int64_t) C.int32_t {
+	var errno C.int32_t = 0
+	sentrywrap.RecoverAndReport(func() {
+		err := p.NewCloudSave(int64(appId))
+		if err != nil {
+			errno = 1
+			sentrywrap.SetLastError(err)
+			return
 		}
 	})
 	return errno

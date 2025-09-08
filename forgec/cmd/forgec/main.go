@@ -36,7 +36,7 @@ func main() {
         log.Fatalf("resolve pkg path: %v", err)
     }
 
-    funcs, err := scanner.ScanExported(absPkg)
+    funcs, structs, err := scanner.ScanExported(absPkg)
     if err != nil {
         log.Fatalf("scan failed: %v", err)
     }
@@ -58,10 +58,9 @@ func main() {
     if err := writer.WriteExportsGo(outGo, modPath, cPrefix, funcs); err != nil {
         log.Fatalf("write exports.go: %v", err)
     }
-    if err := writer.WriteHeader(outH, cPrefix, funcs); err != nil {
+    if err := writer.WriteHeader(outH, cPrefix, funcs, structs); err != nil {
         log.Fatalf("write header: %v", err)
     }
 
-    fmt.Printf("Generated %s and %s (functions: %d)\n", outGo, outH, len(funcs))
+    fmt.Printf("Generated %s and %s (functions: %d, structs: %d)\n", outGo, outH, len(funcs), len(structs))
 }
-

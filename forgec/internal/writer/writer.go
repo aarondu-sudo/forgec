@@ -41,25 +41,45 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
         // C param list includes all params + out pointer
         b.WriteString("//export " + cname + "\n")
         fmt.Fprintf(&b, "func %s(", cname)
-        // params as C.int32_t
+        // params as C.int32_t or C.int64_t
         var goArgs []string
         for i, pn := range f.Params {
             if i > 0 { b.WriteString(", ") }
-            fmt.Fprintf(&b, "%s C.int32_t", pn)
-            goArgs = append(goArgs, fmt.Sprintf("int32(%s)", pn))
+            cpt := "C.int32_t"
+            gCast := "int32"
+            if i < len(f.ParamTypes) && f.ParamTypes[i] == "int64" {
+                cpt = "C.int64_t"
+                gCast = "int64"
+            }
+            fmt.Fprintf(&b, "%s %s", pn, cpt)
+            goArgs = append(goArgs, fmt.Sprintf("%s(%s)", gCast, pn))
         }
-        if len(f.Params) > 0 { b.WriteString(", ") }
-        b.WriteString("out *C.int32_t")
+        if f.HasValue {
+            if len(f.Params) > 0 { b.WriteString(", ") }
+            outType := "*C.int32_t"
+            if f.RetType == "int64" { outType = "*C.int64_t" }
+            b.WriteString("out " + outType)
+        }
         b.WriteString(") C.int32_t {\n")
         b.WriteString("    var errno C.int32_t = 0\n")
         b.WriteString("    sentrywrap.RecoverAndReport(func() {\n")
-        fmt.Fprintf(&b, "        res, err := p.%s(%s)\n", f.Name, strings.Join(goArgs, ", "))
+        if f.HasValue {
+            fmt.Fprintf(&b, "        res, err := p.%s(%s)\n", f.Name, strings.Join(goArgs, ", "))
+        } else {
+            fmt.Fprintf(&b, "        err := p.%s(%s)\n", f.Name, strings.Join(goArgs, ", "))
+        }
         b.WriteString("        if err != nil {\n")
         b.WriteString("            errno = 1\n")
         b.WriteString("            sentrywrap.SetLastError(err)\n")
         b.WriteString("            return\n")
         b.WriteString("        }\n")
-        b.WriteString("        if out != nil { *out = C.int32_t(res) }\n")
+        if f.HasValue {
+            if f.RetType == "int64" {
+                b.WriteString("        if out != nil { *out = C.int64_t(res) }\n")
+            } else {
+                b.WriteString("        if out != nil { *out = C.int32_t(res) }\n")
+            }
+        }
         b.WriteString("    })\n")
         b.WriteString("    return errno\n")
         b.WriteString("}\n\n")
@@ -84,7 +104,7 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
 }
 
 // WriteHeader generates forgec.h with C prototypes.
-func WriteHeader(path, cPrefix string, funcs []scanner.Func) error {
+func WriteHeader(path, cPrefix string, funcs []scanner.Func, structs []scanner.Struct) error {
     sort.Slice(funcs, func(i, j int) bool { return funcs[i].Name < funcs[j].Name })
 
     var b bytes.Buffer
@@ -101,16 +121,36 @@ func WriteHeader(path, cPrefix string, funcs []scanner.Func) error {
         b.WriteString("(")
         for i := range f.Params {
             if i > 0 { b.WriteString(", ") }
-            b.WriteString("int32_t ")
+            if i < len(f.ParamTypes) && f.ParamTypes[i] == "int64" {
+                b.WriteString("int64_t ")
+            } else {
+                b.WriteString("int32_t ")
+            }
             b.WriteString(f.Params[i])
         }
-        if len(f.Params) > 0 { b.WriteString(", ") }
-        b.WriteString("int32_t* out");
+        if f.HasValue {
+            if len(f.Params) > 0 { b.WriteString(", ") }
+            if f.RetType == "int64" {
+                b.WriteString("int64_t* out")
+            } else {
+                b.WriteString("int32_t* out")
+            }
+        }
         b.WriteString(");\n")
     }
 
     b.WriteString("\nconst char* capi_last_error_json(void);\n")
     b.WriteString("void capi_free(void* p);\n\n")
+
+    // Struct typedefs
+    sort.Slice(structs, func(i, j int) bool { return structs[i].Name < structs[j].Name })
+    for _, s := range structs {
+        fmt.Fprintf(&b, "typedef struct %s {\n", s.Name)
+        for _, f := range s.Fields {
+            fmt.Fprintf(&b, "    %s %s;\n", f.CType, f.ExportName)
+        }
+        fmt.Fprintf(&b, "} %s;\n\n", s.Name)
+    }
     b.WriteString("#ifdef __cplusplus\n}\n#endif\n")
 
     if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
