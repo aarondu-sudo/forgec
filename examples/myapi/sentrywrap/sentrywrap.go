@@ -55,4 +55,3 @@ func errFromRecover(r any) error {
         return simpleError("panic")
     }
 }
-

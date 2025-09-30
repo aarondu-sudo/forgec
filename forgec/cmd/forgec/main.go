@@ -18,6 +18,8 @@ func main() {
         outH    string
         modPath string
         cPrefix string
+        withSentryFlag bool
+        withSentryLong bool
     )
 
     flag.StringVar(&pkgPath, "pkg", "./internal", "path to the Go package to scan (e.g., ./internal)")
@@ -25,7 +27,12 @@ func main() {
     flag.StringVar(&outH, "hout", "./forgec.h", "output path for generated C header")
     flag.StringVar(&modPath, "mod", "", "Go module path of the target project (e.g., example.com/myapi)")
     flag.StringVar(&cPrefix, "cprefix", "PM_", "C export symbol prefix (e.g., PM_)")
+    // Sentry integration toggle (short and long forms)
+    flag.BoolVar(&withSentryFlag, "sentry", false, "include sentrywrap helpers and reporting")
+    flag.BoolVar(&withSentryLong, "withsentry", false, "include sentrywrap helpers and reporting")
     flag.Parse()
+
+    withSentry := withSentryFlag || withSentryLong
 
     if modPath == "" {
         log.Fatal("-mod is required (module path of the target project, e.g., example.com/myapi)")
@@ -55,12 +62,34 @@ func main() {
         }
     }
 
-    if err := writer.WriteExportsGo(outGo, modPath, cPrefix, funcs); err != nil {
+    if err := writer.WriteExportsGo(outGo, modPath, cPrefix, funcs, withSentry); err != nil {
         log.Fatalf("write exports.go: %v", err)
     }
     if err := writer.WriteHeader(outH, cPrefix, funcs, structs); err != nil {
         log.Fatalf("write header: %v", err)
     }
 
-    fmt.Printf("Generated %s and %s (functions: %d, structs: %d)\n", outGo, outH, len(funcs), len(structs))
+    // Optionally generate sentrywrap package into the target module directory
+    if withSentry {
+        // Use the directory of exports.go as the module root for generation
+        modRoot := filepath.Dir(outGo)
+        if err := writer.WriteSentryWrap(modRoot); err != nil {
+            log.Fatalf("write sentrywrap: %v", err)
+        }
+    }
+
+    // Always generate build scripts into the target module dir
+    {
+        modRoot := filepath.Dir(outGo)
+        modName := filepath.Base(modPath)
+        if err := writer.WriteBuildScripts(modRoot, modName); err != nil {
+            log.Fatalf("write build scripts: %v", err)
+        }
+    }
+
+    if withSentry {
+        fmt.Printf("Generated %s, %s, sentrywrap/, and build scripts (functions: %d, structs: %d)\n", outGo, outH, len(funcs), len(structs))
+    } else {
+        fmt.Printf("Generated %s, %s, and build scripts (functions: %d, structs: %d)\n", outGo, outH, len(funcs), len(structs))
+    }
 }

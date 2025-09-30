@@ -83,6 +83,8 @@ extern "C" {
 extern void capi_free(void* p);
 extern char* capi_last_error_json();
 extern int32_t PM_Add(int32_t a, int32_t b, int32_t* out);
+extern int32_t PM_Minus(int32_t a, int32_t b, int32_t* out);
+extern int32_t PM_NewCloudSave(int64_t appId);
 
 #ifdef __cplusplus
 }

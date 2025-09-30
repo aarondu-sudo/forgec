@@ -5,6 +5,7 @@ import (
     "fmt"
     "go/format"
     "os"
+    "path/filepath"
     "sort"
     "strings"
 
@@ -12,7 +13,7 @@ import (
 )
 
 // WriteExportsGo generates exports.go with cgo exports, panic recovery, errno, and helpers.
-func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
+func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func, withSentry bool) error {
     // Sort for stability
     sort.Slice(funcs, func(i, j int) bool { return funcs[i].Name < funcs[j].Name })
 
@@ -22,7 +23,12 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
     b.WriteString("import \"C\"\n\n")
     b.WriteString("import (\n")
     fmt.Fprintf(&b, "    p \"%s/internal\"\n", modPath)
-    fmt.Fprintf(&b, "    \"%s/sentrywrap\"\n", modPath)
+    if withSentry {
+        fmt.Fprintf(&b, "    \"%s/sentrywrap\"\n", modPath)
+    } else {
+        b.WriteString("    \"encoding/json\"\n")
+        b.WriteString("    \"sync\"\n")
+    }
     b.WriteString("    \"unsafe\"\n")
     b.WriteString(")\n\n")
 
@@ -30,11 +36,45 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
     b.WriteString("//export capi_free\n")
     b.WriteString("func capi_free(p unsafe.Pointer) { C.free(p) }\n\n")
 
-    b.WriteString("//export capi_last_error_json\n")
-    b.WriteString("func capi_last_error_json() *C.char {\n")
-    b.WriteString("    s := sentrywrap.LastErrorJSON()\n")
-    b.WriteString("    return C.CString(s)\n")
-    b.WriteString("}\n\n")
+    if withSentry {
+        b.WriteString("//export capi_last_error_json\n")
+        b.WriteString("func capi_last_error_json() *C.char {\n")
+        b.WriteString("    s := sentrywrap.LastErrorJSON()\n")
+        b.WriteString("    return C.CString(s)\n")
+        b.WriteString("}\n\n")
+    } else {
+        b.WriteString("var (\n")
+        b.WriteString("    lastErrMu sync.Mutex\n")
+        b.WriteString("    lastErr   string\n")
+        b.WriteString(")\n\n")
+        b.WriteString("func setLastError(err error) {\n")
+        b.WriteString("    lastErrMu.Lock()\n")
+        b.WriteString("    defer lastErrMu.Unlock()\n")
+        b.WriteString("    if err == nil { lastErr = \"\"; return }\n")
+        b.WriteString("    b, _ := json.Marshal(map[string]any{\"error\": err.Error()})\n")
+        b.WriteString("    lastErr = string(b)\n")
+        b.WriteString("}\n\n")
+        b.WriteString("func lastErrorJSON() string {\n")
+        b.WriteString("    lastErrMu.Lock()\n")
+        b.WriteString("    defer lastErrMu.Unlock()\n")
+        b.WriteString("    if lastErr == \"\" { return \"{}\" }\n")
+        b.WriteString("    return lastErr\n")
+        b.WriteString("}\n\n")
+        b.WriteString("type simpleError string\n")
+        b.WriteString("func (e simpleError) Error() string { return string(e) }\n")
+        b.WriteString("func errFromRecover(r any) error {\n")
+        b.WriteString("    switch x := r.(type) {\n")
+        b.WriteString("    case error:\n        return x\n")
+        b.WriteString("    case string:\n        return simpleError(x)\n")
+        b.WriteString("    default:\n        return simpleError(\"panic\")\n")
+        b.WriteString("    }\n")
+        b.WriteString("}\n\n")
+        b.WriteString("//export capi_last_error_json\n")
+        b.WriteString("func capi_last_error_json() *C.char {\n")
+        b.WriteString("    s := lastErrorJSON()\n")
+        b.WriteString("    return C.CString(s)\n")
+        b.WriteString("}\n\n")
+    }
 
     for _, f := range funcs {
         cname := cPrefix + f.CName
@@ -62,7 +102,12 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
         }
         b.WriteString(") C.int32_t {\n")
         b.WriteString("    var errno C.int32_t = 0\n")
-        b.WriteString("    sentrywrap.RecoverAndReport(func() {\n")
+        if withSentry {
+            b.WriteString("    sentrywrap.RecoverAndReport(func() {\n")
+        } else {
+            b.WriteString("    func() {\n")
+            b.WriteString("        defer func() { if r := recover(); r != nil { setLastError(errFromRecover(r)) } }()\n")
+        }
         if f.HasValue {
             fmt.Fprintf(&b, "        res, err := p.%s(%s)\n", f.Name, strings.Join(goArgs, ", "))
         } else {
@@ -70,7 +115,11 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
         }
         b.WriteString("        if err != nil {\n")
         b.WriteString("            errno = 1\n")
-        b.WriteString("            sentrywrap.SetLastError(err)\n")
+        if withSentry {
+            b.WriteString("            sentrywrap.SetLastError(err)\n")
+        } else {
+            b.WriteString("            setLastError(err)\n")
+        }
         b.WriteString("            return\n")
         b.WriteString("        }\n")
         if f.HasValue {
@@ -80,7 +129,11 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
                 b.WriteString("        if out != nil { *out = C.int32_t(res) }\n")
             }
         }
-        b.WriteString("    })\n")
+        if withSentry {
+            b.WriteString("    })\n")
+        } else {
+            b.WriteString("    }()\n")
+        }
         b.WriteString("    return errno\n")
         b.WriteString("}\n\n")
     }
@@ -99,6 +152,119 @@ func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func) error {
     }
     if err := os.WriteFile(path, fmted, 0o644); err != nil {
         return fmt.Errorf("write %s: %w", path, err)
+    }
+    return nil
+}
+
+// WriteSentryWrap generates the sentrywrap package under the provided module root directory.
+// It writes to <modRoot>/sentrywrap/sentrywrap.go, overwriting if it exists.
+func WriteSentryWrap(modRoot string) error {
+    dir := filepath.Join(modRoot, "sentrywrap")
+    if err := os.MkdirAll(dir, 0o755); err != nil {
+        return fmt.Errorf("mkdir sentrywrap: %w", err)
+    }
+    const content = `package sentrywrap
+
+import (
+    "encoding/json"
+    "sync"
+)
+
+var (
+    lastErrMu sync.Mutex
+    lastErr   string
+)
+
+// RecoverAndReport wraps f with panic recovery and records the error as JSON.
+func RecoverAndReport(f func()) {
+    defer func() {
+        if r := recover(); r != nil {
+            SetLastError(errFromRecover(r))
+        }
+    }()
+    f()
+}
+
+func SetLastError(err error) {
+    lastErrMu.Lock()
+    defer lastErrMu.Unlock()
+    if err == nil {
+        lastErr = ""
+        return
+    }
+    payload := map[string]any{"error": err.Error()}
+    b, _ := json.Marshal(payload)
+    lastErr = string(b)
+}
+
+func LastErrorJSON() string {
+    lastErrMu.Lock()
+    defer lastErrMu.Unlock()
+    if lastErr == "" {
+        return "{}"
+    }
+    return lastErr
+}
+
+type simpleError string
+
+func (e simpleError) Error() string { return string(e) }
+
+func errFromRecover(r any) error {
+    switch x := r.(type) {
+    case error:
+        return x
+    case string:
+        return simpleError(x)
+    default:
+        return simpleError("panic")
+    }
+}
+`
+    out := filepath.Join(dir, "sentrywrap.go")
+    if err := os.WriteFile(out, []byte(content), 0o644); err != nil {
+        return fmt.Errorf("write sentrywrap.go: %w", err)
+    }
+    return nil
+}
+
+// WriteBuildScripts writes simple build scripts into the target module root:
+// - build.sh for macOS/Linux
+// - build.ps1 for Windows
+// They build a c-shared library into the dist directory.
+func WriteBuildScripts(modRoot, modName string) error {
+    if err := os.MkdirAll(filepath.Join(modRoot, "dist"), 0o755); err != nil {
+        return fmt.Errorf("mkdir dist: %w", err)
+    }
+
+    sh := "#!/usr/bin/env bash\n" +
+        "set -euo pipefail\n" +
+        "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n" +
+        "OUT_DIR=\"$ROOT/dist\"\n" +
+        "mkdir -p \"$OUT_DIR\"\n" +
+        "EXT=\"so\"\n" +
+        "case \"$(uname -s)\" in\n" +
+        "  Darwin) EXT=\"dylib\" ;;\n" +
+        "  *) EXT=\"so\" ;;\n" +
+        "esac\n" +
+        "LIB=\"$OUT_DIR/lib" + modName + ".$EXT\"\n" +
+        "echo \"Building $LIB\"\n" +
+        "go build -buildmode=c-shared -o \"$LIB\" \"$ROOT\"\n" +
+        "echo \"OK -> $LIB\"\n"
+    if err := os.WriteFile(filepath.Join(modRoot, "build.sh"), []byte(sh), 0o755); err != nil {
+        return fmt.Errorf("write build.sh: %w", err)
+    }
+
+    ps1 := "Param()\n" +
+        "$Root = Split-Path -Parent $MyInvocation.MyCommand.Path\n" +
+        "$OutDir = Join-Path $Root 'dist'\n" +
+        "New-Item -ItemType Directory -Force -Path $OutDir | Out-Null\n" +
+        "$Lib = Join-Path $OutDir 'lib" + modName + ".dll'\n" +
+        "Write-Host \"Building $Lib\"\n" +
+        "go build -buildmode=c-shared -o $Lib $Root\n" +
+        "Write-Host \"OK -> $Lib\"\n"
+    if err := os.WriteFile(filepath.Join(modRoot, "build.ps1"), []byte(ps1), 0o644); err != nil {
+        return fmt.Errorf("write build.ps1: %w", err)
     }
     return nil
 }
@@ -158,3 +324,4 @@ func WriteHeader(path, cPrefix string, funcs []scanner.Func, structs []scanner.S
     }
     return nil
 }
+

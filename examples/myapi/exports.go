@@ -7,10 +7,9 @@ package main
 import "C"
 
 import (
-	"unsafe"
-
 	p "example.com/myapi/internal"
 	"example.com/myapi/sentrywrap"
+	"unsafe"
 )
 
 //export capi_free
