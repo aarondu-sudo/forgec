@@ -10,8 +10,8 @@ import (
     "strings"
     "text/template"
 
-    tpl "example.com/forgec/template"
-    "example.com/forgec/internal/scanner"
+    tpl "github.com/aarondu-sudo/forgec/forgec/template"
+    "github.com/aarondu-sudo/forgec/forgec/internal/scanner"
 )
 
 func renderTemplate(name string, data any) (string, error) {

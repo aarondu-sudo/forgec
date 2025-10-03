@@ -6,9 +6,15 @@ Minimal Go→C export codegen. It scans `internal/` for functions annotated with
 
 Quick start:
 
-- Build generator: `go build ./forgec/cmd/forgec`
+- Install CLI globally (published): `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@latest`
+  - For reproducible installs: `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@v0.1.1`
+  - Local development (no pre-build needed):
+    - From repo root: `go install ./forgec/cmd/forgec`
+    - Or from submodule: `cd forgec && go install ./cmd/forgec`
+    - If your workspace causes module issues: `GOWORK=off go install ./forgec/cmd/forgec`
+- Check version: `forgec --version`
 - Example: `examples/myapi`
-  - `go generate ./examples/myapi`
+  - Generate: `go generate ./examples/myapi`
   - Linux/macOS: `bash examples/myapi/build.sh` (or `go build -buildmode=c-shared -o examples/myapi/dist/libmyapi.so ./examples/myapi`)
   - Windows: `pwsh -File examples/myapi/build.ps1` (or `go build -buildmode=c-shared -o examples/myapi/dist/myapi.dll ./examples/myapi`)
   - C smoke (Linux/macOS): `cc examples/myapi/c_smoke.c -Iexamples/myapi -Lexamples/myapi/dist -lmyapi -Wl,-rpath,@loader_path/dist -o /tmp/smoke && /tmp/smoke`
@@ -24,17 +30,40 @@ Sentry integration (optional):
 - Enable via `-sentry` (alias: `-withsentry`). When enabled, `forgec` writes `<module>/sentrywrap/sentrywrap.go` and imports it from `exports.go`.
 - When not enabled, `exports.go` includes a tiny recorder and does not import `sentrywrap`.
 
-Example invocation for the sample module:
+Direct usage (installed CLI):
 
 ```
-go run ./forgec/cmd/forgec \
-  -pkg ./examples/myapi/internal \
-  -o ./examples/myapi/exports.go \
-  -hout ./examples/myapi/forgec.h \
-  -mod example.com/myapi \
-  -sentry
+# From your module root (auto-detect module path via go.mod)
+forgec -pkg ./internal -o ./exports.go -hout ./forgec.h
+
+# With sentry error capture
+forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -sentry
+
+# If running outside a module or custom path, pass -mod
+forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -mod example.com/myapi
+```
+
+Alternative (no install):
+
+```
+go run ./forgec/cmd/forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -mod example.com/myapi [-sentry]
 ```
 
 Build scripts:
 
 - `build.sh` (macOS/Linux) and `build.ps1` (Windows) are generated in the module root and build a c-shared library into `./dist/`.
+
+Project init:
+
+- Scaffold: `forgec -init gamedl`
+  - Creates `./gamedl/internal/` and a starter `internal/calc.go` if it doesn’t exist.
+  - Generates template files next to `internal/` (always refreshed on re-run):
+    - `generate.go` (no sentry) and `generate_sentry.go` (with sentry); both call `forgec` via `//go:generate`.
+    - `build.sh` and `build.ps1` for building DLLs to `./dist/`.
+  - Idempotent: does not delete or overwrite user code under `internal/`.
+
+Tips:
+
+- Run `go generate ./...` in your module root to regenerate `exports.go`/`forgec.h` using the generated `generate.go` files.
+- When `-sentry` is used, `sentrywrap/sentrywrap.go` is generated and imported by `exports.go`.
+- Omit `-mod` to let `forgec` auto-detect your module path from the nearest `go.mod`.

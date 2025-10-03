@@ -9,9 +9,9 @@ import (
     "path/filepath"
     "strings"
 
-    "example.com/forgec/internal/scanner"
-    "example.com/forgec/internal/writer"
-    "example.com/forgec/internal/version"
+    "github.com/aarondu-sudo/forgec/forgec/internal/scanner"
+    "github.com/aarondu-sudo/forgec/forgec/internal/writer"
+    "github.com/aarondu-sudo/forgec/forgec/internal/version"
 )
 
 func main() {

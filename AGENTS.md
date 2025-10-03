@@ -13,7 +13,9 @@
 
 ## Build, Test, and Development Commands
 - Build generator: `go build ./forgec/cmd/forgec`
-- Install CLI globally: `go install ./forgec/cmd/forgec` then invoke `forgec`
+- Install CLI globally (published): `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@latest`
+  - Pin version: `@v0.1.1`
+  - Local dev alternative: `go install ./forgec/cmd/forgec` (or `cd forgec && go install ./cmd/forgec`)
 - Check CLI version: `forgec --version`
 - Run via go: `go run ./forgec/cmd/forgec -h`
 - Generate example bindings: `go generate ./examples/myapi`
