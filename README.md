@@ -6,8 +6,8 @@ Minimal Go→C export codegen. It scans `internal/` for functions annotated with
 
 Quick start:
 
-- Install CLI globally (published): `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@latest`
-  - For reproducible installs: `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@v0.1.1`
+- Install CLI globally (published): `go install github.com/aarondu-sudo/forgec/cmd/forgec@latest`
+  - For reproducible installs: `go install github.com/aarondu-sudo/forgec/cmd/forgec@v0.1.5`
   - Local development (no pre-build needed):
     - From repo root: `go install ./cmd/forgec`
     - If your workspace causes module issues: `GOWORK=off go install ./cmd/forgec`
