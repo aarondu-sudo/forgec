@@ -1,0 +1,6 @@
+package main
+
+// This file provides a sentry-enabled generation command.
+// It assumes the module path can be auto-detected from go.mod.
+//go:generate forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -sentry
+
