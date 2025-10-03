@@ -8,9 +8,23 @@ import (
     "path/filepath"
     "sort"
     "strings"
+    "text/template"
 
+    tpl "example.com/forgec/template"
     "example.com/forgec/internal/scanner"
 )
+
+func renderTemplate(name string, data any) (string, error) {
+    t, err := template.New(name).ParseFS(tpl.FS, name)
+    if err != nil {
+        return "", fmt.Errorf("parse template %s: %w", name, err)
+    }
+    var b bytes.Buffer
+    if err := t.Execute(&b, data); err != nil {
+        return "", fmt.Errorf("execute template %s: %w", name, err)
+    }
+    return b.String(), nil
+}
 
 // WriteExportsGo generates exports.go with cgo exports, panic recovery, errno, and helpers.
 func WriteExportsGo(path, modPath, cPrefix string, funcs []scanner.Func, withSentry bool) error {
@@ -163,64 +177,10 @@ func WriteSentryWrap(modRoot string) error {
     if err := os.MkdirAll(dir, 0o755); err != nil {
         return fmt.Errorf("mkdir sentrywrap: %w", err)
     }
-    const content = `package sentrywrap
-
-import (
-    "encoding/json"
-    "sync"
-)
-
-var (
-    lastErrMu sync.Mutex
-    lastErr   string
-)
-
-// RecoverAndReport wraps f with panic recovery and records the error as JSON.
-func RecoverAndReport(f func()) {
-    defer func() {
-        if r := recover(); r != nil {
-            SetLastError(errFromRecover(r))
-        }
-    }()
-    f()
-}
-
-func SetLastError(err error) {
-    lastErrMu.Lock()
-    defer lastErrMu.Unlock()
-    if err == nil {
-        lastErr = ""
-        return
+    content, err := renderTemplate("sentrywrap.go.tmpl", nil)
+    if err != nil {
+        return err
     }
-    payload := map[string]any{"error": err.Error()}
-    b, _ := json.Marshal(payload)
-    lastErr = string(b)
-}
-
-func LastErrorJSON() string {
-    lastErrMu.Lock()
-    defer lastErrMu.Unlock()
-    if lastErr == "" {
-        return "{}"
-    }
-    return lastErr
-}
-
-type simpleError string
-
-func (e simpleError) Error() string { return string(e) }
-
-func errFromRecover(r any) error {
-    switch x := r.(type) {
-    case error:
-        return x
-    case string:
-        return simpleError(x)
-    default:
-        return simpleError("panic")
-    }
-}
-`
     out := filepath.Join(dir, "sentrywrap.go")
     if err := os.WriteFile(out, []byte(content), 0o644); err != nil {
         return fmt.Errorf("write sentrywrap.go: %w", err)
@@ -237,32 +197,15 @@ func WriteBuildScripts(modRoot, modName string) error {
         return fmt.Errorf("mkdir dist: %w", err)
     }
 
-    sh := "#!/usr/bin/env bash\n" +
-        "set -euo pipefail\n" +
-        "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n" +
-        "OUT_DIR=\"$ROOT/dist\"\n" +
-        "mkdir -p \"$OUT_DIR\"\n" +
-        "EXT=\"so\"\n" +
-        "case \"$(uname -s)\" in\n" +
-        "  Darwin) EXT=\"dylib\" ;;\n" +
-        "  *) EXT=\"so\" ;;\n" +
-        "esac\n" +
-        "LIB=\"$OUT_DIR/lib" + modName + ".$EXT\"\n" +
-        "echo \"Building $LIB\"\n" +
-        "go build -buildmode=c-shared -o \"$LIB\" \"$ROOT\"\n" +
-        "echo \"OK -> $LIB\"\n"
+    data := map[string]any{"ModName": modName}
+    sh, err := renderTemplate("build.sh.tmpl", data)
+    if err != nil { return err }
     if err := os.WriteFile(filepath.Join(modRoot, "build.sh"), []byte(sh), 0o755); err != nil {
         return fmt.Errorf("write build.sh: %w", err)
     }
 
-    ps1 := "Param()\n" +
-        "$Root = Split-Path -Parent $MyInvocation.MyCommand.Path\n" +
-        "$OutDir = Join-Path $Root 'dist'\n" +
-        "New-Item -ItemType Directory -Force -Path $OutDir | Out-Null\n" +
-        "$Lib = Join-Path $OutDir 'lib" + modName + ".dll'\n" +
-        "Write-Host \"Building $Lib\"\n" +
-        "go build -buildmode=c-shared -o $Lib $Root\n" +
-        "Write-Host \"OK -> $Lib\"\n"
+    ps1, err := renderTemplate("build.ps1.tmpl", data)
+    if err != nil { return err }
     if err := os.WriteFile(filepath.Join(modRoot, "build.ps1"), []byte(ps1), 0o644); err != nil {
         return fmt.Errorf("write build.ps1: %w", err)
     }
@@ -325,3 +268,20 @@ func WriteHeader(path, cPrefix string, funcs []scanner.Func, structs []scanner.S
     return nil
 }
 
+// InitProject scaffolds a new DLL project directory with standard layout and a sample calc.go.
+func InitProject(name string) error {
+    root := filepath.Clean(name)
+    internalDir := filepath.Join(root, "internal")
+    if err := os.MkdirAll(internalDir, 0o755); err != nil {
+        return fmt.Errorf("mkdir project: %w", err)
+    }
+    // render calc.go
+    calc, err := renderTemplate("init_calc.go.tmpl", map[string]any{"Package": "internal"})
+    if err != nil {
+        return err
+    }
+    if err := os.WriteFile(filepath.Join(internalDir, "calc.go"), []byte(calc), 0o644); err != nil {
+        return fmt.Errorf("write calc.go: %w", err)
+    }
+    return nil
+}

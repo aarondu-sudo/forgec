@@ -1,11 +1,17 @@
 package internal
 
 // capi:export
-func Add(a int32, b int32) (int32, error) {
-	return a + b, nil
+type Point struct {
+	X int32
+	Y int32
 }
 
 // capi:export
-func Minus(a int32, b int32) (int32, error) {
-	return a - b, nil
+func Add(sum *Point, target *Point, addend *Point) (int32, *Point) {
+	return 0, &Point{X: left.X + right.X, Y: left.Y + right.Y}
+}
+
+// capi:export
+func Minus(left *Point, right *Point) (int32, *Point) {
+	return 0, &Point{X: left.X - right.X, Y: left.Y - right.Y}
 }

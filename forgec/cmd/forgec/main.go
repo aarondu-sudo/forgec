@@ -13,6 +13,7 @@ import (
 
 func main() {
     var (
+        initName string
         pkgPath string
         outGo   string
         outH    string
@@ -22,6 +23,7 @@ func main() {
         withSentryLong bool
     )
 
+    flag.StringVar(&initName, "init", "", "initialize a new DLL project (e.g., -init gamedl)")
     flag.StringVar(&pkgPath, "pkg", "./internal", "path to the Go package to scan (e.g., ./internal)")
     flag.StringVar(&outGo, "o", "./exports.go", "output path for generated exports.go")
     flag.StringVar(&outH, "hout", "./forgec.h", "output path for generated C header")
@@ -33,6 +35,15 @@ func main() {
     flag.Parse()
 
     withSentry := withSentryFlag || withSentryLong
+
+    // Handle project initialization and exit
+    if initName != "" {
+        if err := writer.InitProject(initName); err != nil {
+            log.Fatalf("init project: %v", err)
+        }
+        fmt.Printf("Initialized project at ./%s with internal/calc.go\n", initName)
+        return
+    }
 
     if modPath == "" {
         log.Fatal("-mod is required (module path of the target project, e.g., example.com/myapi)")
