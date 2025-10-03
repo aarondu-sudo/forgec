@@ -1,26 +1,26 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `forgec/`: Go code generator module
+- Generator module at repo root:
   - `cmd/forgec/`: CLI entrypoint (`main.go`)
-  - `internal/`: generator internals (`scanner`, `writer`)
+  - `internal/`: generator internals (`scanner`, `writer`, `version`)
   - `template/`: text/template files used by writer (embedded)
-- `examples/myapi/`: Sample consumer module
-  - `internal/`: example API functions (annotated with `capi:export`)
-  - `sentrywrap/`: panic/error capture helpers
-  - `dist/`: build outputs (`.so/.dll/.dylib`)
-- Root: `go.work`, `README.md`, `LICENSE`.
+- Example consumer modules are not included in this repo by default. When present, a typical layout is:
+  - `<module>/internal/`: API functions (annotated with `capi:export`)
+  - `<module>/sentrywrap/`: panic/error capture helpers
+  - `<module>/dist/`: build outputs (`.so/.dll/.dylib`)
+- Root: `go.mod`, `README.md`, `LICENSE`.
 
 ## Build, Test, and Development Commands
-- Build generator: `go build ./forgec/cmd/forgec`
+- Build generator: `go build ./cmd/forgec`
 - Install CLI globally (published): `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@latest`
   - Pin version: `@v0.1.1`
-  - Local dev alternative: `go install ./forgec/cmd/forgec` (or `cd forgec && go install ./cmd/forgec`)
+  - Local dev alternative: `go install ./cmd/forgec` (use `GOWORK=off` if your workspace interferes)
 - Check CLI version: `forgec --version`
-- Run via go: `go run ./forgec/cmd/forgec -h`
-- Generate example bindings: `go generate ./examples/myapi`
-- Build shared library (macOS/Linux): `go build -buildmode=c-shared -o examples/myapi/dist/libmyapi.so ./examples/myapi`
-- C smoke test (macOS/Linux): `cc examples/myapi/c_smoke.c -Iexamples/myapi -Lexamples/myapi/dist -lmyapi -Wl,-rpath,@loader_path/dist -o /tmp/smoke && /tmp/smoke`
+- Run via go: `go run ./cmd/forgec -h`
+- Generate bindings in your module (installed CLI): `forgec -pkg ./internal -o ./exports.go -hout ./forgec.h [-sentry]`
+- Build shared library (macOS/Linux, example): `go build -buildmode=c-shared -o ./dist/lib<name>.so ./`
+- C smoke test (macOS/Linux, example): `cc c_smoke.c -I. -L./dist -l<name> -Wl,-rpath,@loader_path/dist -o /tmp/smoke && /tmp/smoke`
 
 ### Project Init
 - Initialize a standard DLL project layout: `forgec -init gamedl`
@@ -33,13 +33,13 @@
 
 ## Coding Style & Naming Conventions
 - Go version: 1.22; use idiomatic Go (gofmt). Run `go fmt ./...`.
-- Generated files are formatted via `go/format`; do not hand-edit `examples/myapi/exports.go` or `forgec.h`.
+- Generated files are formatted via `go/format`; do not hand-edit generated `exports.go` or `forgec.h` in consumer modules.
 - C export names default to `PM_<GoName>`; return value via `int32_t* out`; function returns errno (`0` ok, `1` error`).
 - Keep packages small; filenames lowercase with underscores only if needed.
 
 ## Testing Guidelines
 - Framework: standard `testing`. Add `_test.go` files with `TestXxx` functions.
-- Run tests: `go test ./forgec/...` and `go test ./examples/myapi/...`.
+- Run tests for the generator: `go test ./internal/...` (or `go test ./...`).
 - Prefer table-driven tests for `scanner` and `writer`; include edge cases (invalid signatures, no tags).
 
 ## Commit & Pull Request Guidelines
@@ -55,7 +55,7 @@
   - Module path: pass via `-mod` or omit to auto-detect from nearest `go.mod`.
 
 ### Templates
-- Some fixed code is rendered via `text/template` and embedded with `go:embed` under `forgec/template/`:
+- Some fixed code is rendered via `text/template` and embedded with `go:embed` under `template/`:
   - `sentrywrap.go.tmpl` → `<module>/sentrywrap/sentrywrap.go`
   - `build.sh.tmpl` → `<module>/build.sh`
   - `build.ps1.tmpl` → `<module>/build.ps1`
@@ -65,7 +65,7 @@
 - To modify output, edit templates and rebuild `forgec`.
 
 ## Versioning
-- The CLI exposes a version via `forgec --version` (see `forgec/internal/version`).
+- The CLI exposes a version via `forgec --version` (see `internal/version`).
 - Bump the version on any functional change to the CLI, templates, or output format.
 
 ## Usage Examples

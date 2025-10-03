@@ -9,15 +9,16 @@ Quick start:
 - Install CLI globally (published): `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@latest`
   - For reproducible installs: `go install github.com/aarondu-sudo/forgec/forgec/cmd/forgec@v0.1.1`
   - Local development (no pre-build needed):
-    - From repo root: `go install ./forgec/cmd/forgec`
-    - Or from submodule: `cd forgec && go install ./cmd/forgec`
-    - If your workspace causes module issues: `GOWORK=off go install ./forgec/cmd/forgec`
+    - From repo root: `go install ./cmd/forgec`
+    - If your workspace causes module issues: `GOWORK=off go install ./cmd/forgec`
 - Check version: `forgec --version`
-- Example: `examples/myapi`
-  - Generate: `go generate ./examples/myapi`
-  - Linux/macOS: `bash examples/myapi/build.sh` (or `go build -buildmode=c-shared -o examples/myapi/dist/libmyapi.so ./examples/myapi`)
-  - Windows: `pwsh -File examples/myapi/build.ps1` (or `go build -buildmode=c-shared -o examples/myapi/dist/myapi.dll ./examples/myapi`)
-  - C smoke (Linux/macOS): `cc examples/myapi/c_smoke.c -Iexamples/myapi -Lexamples/myapi/dist -lmyapi -Wl,-rpath,@loader_path/dist -o /tmp/smoke && /tmp/smoke`
+
+Example build (your module):
+
+- Generate: `forgec -pkg ./internal -o ./exports.go -hout ./forgec.h [-sentry]`
+- Linux/macOS: `go build -buildmode=c-shared -o ./dist/lib<name>.so ./`
+- Windows: `go build -buildmode=c-shared -o ./dist/<name>.dll ./`
+- Optional smoke (Linux/macOS): `cc path/to/c_smoke.c -I. -L./dist -l<name> -Wl,-rpath,@loader_path/dist -o /tmp/smoke && /tmp/smoke`
 
 Notes:
 
@@ -46,7 +47,7 @@ forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -mod example.com/myapi
 Alternative (no install):
 
 ```
-go run ./forgec/cmd/forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -mod example.com/myapi [-sentry]
+go run ./cmd/forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -mod example.com/myapi [-sentry]
 ```
 
 Build scripts:
