@@ -1,3 +1,3 @@
-module github.com/aarondu-sudo/forgec/forgec
+module github.com/aarondu-sudo/forgec
 
 go 1.22
