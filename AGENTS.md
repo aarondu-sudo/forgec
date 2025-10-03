@@ -13,6 +13,8 @@
 
 ## Build, Test, and Development Commands
 - Build generator: `go build ./forgec/cmd/forgec`
+- Install CLI globally: `go install ./forgec/cmd/forgec` then invoke `forgec`
+- Check CLI version: `forgec --version`
 - Run via go: `go run ./forgec/cmd/forgec -h`
 - Generate example bindings: `go generate ./examples/myapi`
 - Build shared library (macOS/Linux): `go build -buildmode=c-shared -o examples/myapi/dist/libmyapi.so ./examples/myapi`
@@ -21,7 +23,11 @@
 ### Project Init
 - Initialize a standard DLL project layout: `forgec -init gamedl`
   - Creates `./gamedl/` with `./gamedl/internal/`
-  - Writes a starter `internal/calc.go` with `capi:export` examples
+  - Writes a starter `internal/calc.go` with `capi:export` examples (only if missing)
+  - Generates template files next to `internal/` (always overwritten on re-init):
+    - `generate.go` (no sentry) and `generate_sentry.go` (with sentry), each with a `//go:generate forgec ...` command
+    - `build.sh` and `build.ps1` (DLL build scripts)
+  - Idempotent: never deletes or overwrites user code under `internal/`; template files are refreshed every time
 
 ## Coding Style & Naming Conventions
 - Go version: 1.22; use idiomatic Go (gofmt). Run `go fmt ./...`.
@@ -44,6 +50,7 @@
   - `exports.go`: cgo `//export` wrappers with panic capture and last-error helpers.
   - `forgec.h`: matching C prototypes and helpers (`capi_last_error_json`, `capi_free`).
   - Build scripts: `build.sh` and `build.ps1` in module root.
+  - Module path: pass via `-mod` or omit to auto-detect from nearest `go.mod`.
 
 ### Templates
 - Some fixed code is rendered via `text/template` and embedded with `go:embed` under `forgec/template/`:
@@ -51,7 +58,19 @@
   - `build.sh.tmpl` → `<module>/build.sh`
   - `build.ps1.tmpl` → `<module>/build.ps1`
   - `init_calc.go.tmpl` → `<project>/internal/calc.go` for `-init`
+  - `generate.go.tmpl` → `<project>/generate.go` (no sentry)
+  - `generate_sentry.go.tmpl` → `<project>/generate_sentry.go` (with sentry)
 - To modify output, edit templates and rebuild `forgec`.
+
+## Versioning
+- The CLI exposes a version via `forgec --version` (see `forgec/internal/version`).
+- Bump the version on any functional change to the CLI, templates, or output format.
+
+## Usage Examples
+- Generate using installed CLI (auto-detect module path):
+  - `forgec -pkg ./internal -o ./exports.go -hout ./forgec.h`
+  - With sentry: `forgec -pkg ./internal -o ./exports.go -hout ./forgec.h -sentry`
+- `go generate` integration (created by `-init`): run `go generate ./...` in your module root.
 
 ## Contributor Tips
 - When extending signatures or prefixes, update both `scanner` and `writer` and refresh example via `go generate`.

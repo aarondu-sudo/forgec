@@ -275,13 +275,34 @@ func InitProject(name string) error {
     if err := os.MkdirAll(internalDir, 0o755); err != nil {
         return fmt.Errorf("mkdir project: %w", err)
     }
-    // render calc.go
-    calc, err := renderTemplate("init_calc.go.tmpl", map[string]any{"Package": "internal"})
-    if err != nil {
+
+    // Do not overwrite user's internal logic. Only create calc.go if missing.
+    calcPath := filepath.Join(internalDir, "calc.go")
+    if _, err := os.Stat(calcPath); os.IsNotExist(err) {
+        calc, err := renderTemplate("init_calc.go.tmpl", map[string]any{"Package": "internal"})
+        if err != nil { return err }
+        if err := os.WriteFile(calcPath, []byte(calc), 0o644); err != nil {
+            return fmt.Errorf("write calc.go: %w", err)
+        }
+    }
+
+    // Always (re)generate template-based files next to internal/: build scripts and go:generate helpers.
+    modName := filepath.Base(root)
+    if err := WriteBuildScripts(root, modName); err != nil {
         return err
     }
-    if err := os.WriteFile(filepath.Join(internalDir, "calc.go"), []byte(calc), 0o644); err != nil {
-        return fmt.Errorf("write calc.go: %w", err)
+
+    // Generate two go:generate helpers: one with sentry, one without. Always overwrite for freshness.
+    genNoSentry, err := renderTemplate("generate.go.tmpl", map[string]any{"WithSentry": false})
+    if err != nil { return err }
+    if err := os.WriteFile(filepath.Join(root, "generate.go"), []byte(genNoSentry), 0o644); err != nil {
+        return fmt.Errorf("write generate.go: %w", err)
+    }
+
+    genSentry, err := renderTemplate("generate_sentry.go.tmpl", map[string]any{"WithSentry": true})
+    if err != nil { return err }
+    if err := os.WriteFile(filepath.Join(root, "generate_sentry.go"), []byte(genSentry), 0o644); err != nil {
+        return fmt.Errorf("write generate_sentry.go: %w", err)
     }
     return nil
 }

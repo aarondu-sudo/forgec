@@ -1,14 +1,17 @@
 package main
 
 import (
+    "bufio"
     "flag"
     "fmt"
     "log"
     "os"
     "path/filepath"
+    "strings"
 
     "example.com/forgec/internal/scanner"
     "example.com/forgec/internal/writer"
+    "example.com/forgec/internal/version"
 )
 
 func main() {
@@ -21,6 +24,7 @@ func main() {
         cPrefix string
         withSentryFlag bool
         withSentryLong bool
+        showVersion bool
     )
 
     flag.StringVar(&initName, "init", "", "initialize a new DLL project (e.g., -init gamedl)")
@@ -32,21 +36,32 @@ func main() {
     // Sentry integration toggle (short and long forms)
     flag.BoolVar(&withSentryFlag, "sentry", false, "include sentrywrap helpers and reporting")
     flag.BoolVar(&withSentryLong, "withsentry", false, "include sentrywrap helpers and reporting")
+    flag.BoolVar(&showVersion, "version", false, "print forgec version and exit")
     flag.Parse()
 
     withSentry := withSentryFlag || withSentryLong
+
+    if showVersion {
+        fmt.Println(version.Version)
+        return
+    }
 
     // Handle project initialization and exit
     if initName != "" {
         if err := writer.InitProject(initName); err != nil {
             log.Fatalf("init project: %v", err)
         }
-        fmt.Printf("Initialized project at ./%s with internal/calc.go\n", initName)
+        fmt.Printf("Initialized project at ./%s (idempotent). Templates regenerated.\n", initName)
         return
     }
 
+    // Determine module path: use -mod if provided, otherwise detect from go.mod near outputs.
     if modPath == "" {
-        log.Fatal("-mod is required (module path of the target project, e.g., example.com/myapi)")
+        detected, derr := detectModulePath(filepath.Dir(outGo))
+        if derr != nil || detected == "" {
+            log.Fatal("module path not provided and go.mod not found; pass -mod or run within a module")
+        }
+        modPath = detected
     }
 
     absPkg, err := filepath.Abs(pkgPath)
@@ -103,4 +118,43 @@ func main() {
     } else {
         fmt.Printf("Generated %s, %s, and build scripts (functions: %d, structs: %d)\n", outGo, outH, len(funcs), len(structs))
     }
+}
+
+// detectModulePath tries to find a go.mod (starting from startDir and up) and parse its module path.
+func detectModulePath(startDir string) (string, error) {
+    dir := startDir
+    if dir == "" {
+        var err error
+        dir, err = os.Getwd()
+        if err != nil {
+            return "", err
+        }
+    }
+    for {
+        gm := filepath.Join(dir, "go.mod")
+        if fi, err := os.Stat(gm); err == nil && !fi.IsDir() {
+            f, err := os.Open(gm)
+            if err != nil {
+                return "", err
+            }
+            defer f.Close()
+            s := bufio.NewScanner(f)
+            for s.Scan() {
+                line := strings.TrimSpace(s.Text())
+                if strings.HasPrefix(line, "module ") {
+                    return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
+                }
+            }
+            if err := s.Err(); err != nil {
+                return "", err
+            }
+            break
+        }
+        parent := filepath.Dir(dir)
+        if parent == dir {
+            break
+        }
+        dir = parent
+    }
+    return "", fmt.Errorf("go.mod not found from %s", startDir)
 }
